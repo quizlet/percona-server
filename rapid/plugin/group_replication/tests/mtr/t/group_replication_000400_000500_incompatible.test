@@ -1,0 +1,100 @@
+################################################################################
+# This test validates that members with version 0.6.0 and greater are not
+# compatible with previous versions, thence not allowed to groups with members
+# of those versions.
+#
+# Test:
+# 0. The test requires two servers: M1 and M2.
+# 1. Bootstrap start a group on M2 with a version 0.4.0. When M1 tries to join
+#    the group, expect ERROR because it is declared incompatible with the group.
+# 2. Bootstrap start a group on M2 with a version 0.5.0. When M1 tries to join
+#    the group, expect ERROR because it is declared incompatible with the group.
+# 3. Bootstrap start a group on M2 post resetting the version. When M1 tries to
+#    join the group, expect SUCCESS because it is compatible with the group.
+# 4. Assert check two error messages in error log due to 1 and 2.
+################################################################################
+
+--source include/have_debug.inc
+--source ../inc/have_group_replication_plugin.inc
+--let $rpl_skip_group_replication_start= 1
+--source ../inc/group_replication.inc
+
+# Set defaults.
+--connection server2
+SET @debug_saved= @@GLOBAL.DEBUG;
+
+--connection server1
+--disable_query_log
+--eval SET GLOBAL group_replication_group_name= "$group_replication_group_name"
+--enable_query_log
+
+
+--echo
+--echo ############################################################
+--echo # 1. Force member 2 to have version 0.4.0.
+--echo #    A group will be started with that version
+--echo #
+--echo #    Try to join group with a version greater or equal
+--echo #    than 0.6.0.
+--echo #    Member 1 will not be able to join, since it is
+--echo #    incompatible with 0.4.0 version.
+--let $rpl_connection_name= server2
+--source include/rpl_connection.inc
+SET @@GLOBAL.DEBUG= '+d,group_replication_compatibility_000400_version';
+--source ../inc/start_and_bootstrap_group_replication.inc
+
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+# The start will fail as the member is declared incompatible with the group
+--error ER_GROUP_REPLICATION_CONFIGURATION
+START GROUP_REPLICATION;
+
+
+--echo
+--echo ############################################################
+--echo # 2. Force member 2 to have version 0.5.0.
+--echo #    A group will be started with that version
+--echo #
+--echo #    Try to join group with a version greater or equal
+--echo #    than 0.6.0.
+--echo #    Member 1 will not be able to join, since it is
+--echo #    incompatible with 0.5.0 version.
+--let $rpl_connection_name= server2
+--source include/rpl_connection.inc
+--source include/stop_group_replication.inc
+SET @@GLOBAL.DEBUG= '+d,group_replication_compatibility_000500_version';
+--source ../inc/start_and_bootstrap_group_replication.inc
+
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+# The start will fail as the member is declared incompatible with the group
+--error ER_GROUP_REPLICATION_CONFIGURATION
+START GROUP_REPLICATION;
+
+
+--echo
+--echo ############################################################
+--echo # 3. Reset version on member 2 and validate that member 1 is
+--echo #    able to join.
+--let $rpl_connection_name= server2
+--source include/rpl_connection.inc
+--source include/stop_group_replication.inc
+SET @@GLOBAL.DEBUG= @debug_save;
+--source ../inc/start_and_bootstrap_group_replication.inc
+
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+--source include/start_group_replication.inc
+
+
+--echo
+--echo ############################################################
+--echo # 4. Assert that there are 2 error messages on member 1 due
+--echo #    to the errors on join to group.
+--let $grep_file=$MYSQLTEST_VARDIR/tmp/group_replication_000400_000500_incompatible.err
+--let $grep_pattern=Member version is incompatible with the group
+--let $grep_output= print_count
+--source include/grep_pattern.inc
+
+
+--source ../inc/group_replication_end.inc

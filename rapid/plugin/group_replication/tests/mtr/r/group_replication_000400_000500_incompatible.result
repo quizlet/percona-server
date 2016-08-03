@@ -1,0 +1,53 @@
+include/group_replication.inc
+Warnings:
+Note	####	Sending passwords in plain text without SSL/TLS is extremely insecure.
+Note	####	Storing MySQL user name or password information in the master info repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START SLAVE; see the 'START SLAVE Syntax' in the MySQL Manual for more information.
+[connection server1]
+SET @debug_saved= @@GLOBAL.DEBUG;
+
+############################################################
+# 1. Force member 2 to have version 0.4.0.
+#    A group will be started with that version
+#
+#    Try to join group with a version greater or equal
+#    than 0.6.0.
+#    Member 1 will not be able to join, since it is
+#    incompatible with 0.4.0 version.
+[connection server2]
+SET @@GLOBAL.DEBUG= '+d,group_replication_compatibility_000400_version';
+include/start_and_bootstrap_group_replication.inc
+[connection server1]
+START GROUP_REPLICATION;
+ERROR HY000: The server is not configured properly to be an active member of the group. Please see more details on error log.
+
+############################################################
+# 2. Force member 2 to have version 0.5.0.
+#    A group will be started with that version
+#
+#    Try to join group with a version greater or equal
+#    than 0.6.0.
+#    Member 1 will not be able to join, since it is
+#    incompatible with 0.5.0 version.
+[connection server2]
+include/stop_group_replication.inc
+SET @@GLOBAL.DEBUG= '+d,group_replication_compatibility_000500_version';
+include/start_and_bootstrap_group_replication.inc
+[connection server1]
+START GROUP_REPLICATION;
+ERROR HY000: The server is not configured properly to be an active member of the group. Please see more details on error log.
+
+############################################################
+# 3. Reset version on member 2 and validate that member 1 is
+#    able to join.
+[connection server2]
+include/stop_group_replication.inc
+SET @@GLOBAL.DEBUG= @debug_save;
+include/start_and_bootstrap_group_replication.inc
+[connection server1]
+include/start_group_replication.inc
+
+############################################################
+# 4. Assert that there are 2 error messages on member 1 due
+#    to the errors on join to group.
+Occurrences of 'Member version is incompatible with the group' in the input file: 2
+include/group_replication_end.inc

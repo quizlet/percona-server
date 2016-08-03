@@ -1,0 +1,17 @@
+# For easier human reading (MTR doesn't care), please keep entries
+# in alphabetical order. This also helps with merge conflict resolution.
+
+group_replication.group_replication_inject_pipeline_error_local_gtid           # BUG#23753700  2016-07-13 Nuno Carvalho
+group_replication.group_replication_large_view_change_event_size               # BUG#23753700  2016-07-13 Nuno Carvalho
+group_replication.group_replication_recovery_conflicting_data_failover         # BUG#23502642  2016-07-13 Nuno Carvalho
+group_replication.group_replication_recovery_purged_donor_failover             # BUG#23502642  2016-05-31 Nuno Carvalho
+group_replication.group_replication_user                                       # BUG#23699058  2016-07-13 Nuno Carvalho
+group_replication.group_replication_user_recreation                            # BUG#23699058  2016-07-13 Nuno Carvalho
+# yaSSL
+group_replication.group_replication_recovery_ssl_and_ssl_mode                  # BUG#23592214  2016-07-13 Nuno Carvalho
+group_replication.group_replication_ssl_mode                                   # BUG#23592214  2016-07-13 Nuno Carvalho
+group_replication.group_replication_ssl_mode_verify_identity_error             # BUG#23592214  2016-07-13 Nuno Carvalho
+
+group_replication.group_replication_autostart_on_install                       # BUG#24295348  2016-07-14 Nuno Carvalho
+group_replication.group_replication_readmode_on_autostart                      # BUG#23699058  2016-07-14 Nuno Carvalho
+group_replication.group_replication_server_id_0                                # BUG#24295473  2016-07-14 Nuno Carvalho

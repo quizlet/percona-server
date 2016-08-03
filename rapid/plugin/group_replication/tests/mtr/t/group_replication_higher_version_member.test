@@ -1,0 +1,80 @@
+################################################################################
+# This test checks that if a joiner has a higher version than the members in a
+# group, it will be able to join it.
+# To test this, we start member 1, and then try to start member 2 where we
+# set a fake higher version.
+#
+# Test:
+# 0. The test requires two servers: M1 and M2.
+# 1. Bootstrap group with M1. Add some data for recovery.
+# 2. Try to add M2 that has a higher version using DEBUG point.
+# 3. Check all is fine on M1 and M2.
+# 4. Clean up.
+################################################################################
+
+--source include/have_debug.inc
+--source ../inc/have_group_replication_plugin.inc
+--let $rpl_skip_group_replication_start= 1
+--source ../inc/group_replication.inc
+
+--echo #
+--echo # Setup a member
+--echo #
+
+--connection server1
+--echo server1
+--source ../inc/start_and_bootstrap_group_replication.inc
+
+--echo # Add some data for recovery
+
+CREATE TABLE t1 (c1 INT NOT NULL PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+
+--echo #
+--echo # Try to add a new member that has a higher version
+--echo #
+
+--connection server2
+--echo server2
+
+SET @debug_saved= @@GLOBAL.DEBUG;
+SET @@GLOBAL.DEBUG= '+d,group_replication_compatability_higher_minor_version';
+
+--source include/start_group_replication.inc
+
+--echo #
+--echo # Check all is fine
+--echo #
+
+--connection server2
+--echo server2
+
+INSERT INTO t1 VALUES (2);
+
+--let $sync_slave_connection=server1
+--source include/sync_slave_sql_with_master.inc
+
+--connection server1
+--echo server1
+
+--let $assert_text= On the first member, the table should contain 2 elements
+--let $assert_cond= [SELECT COUNT(*) FROM t1] = 2;
+--source include/assert.inc
+
+--echo #
+--echo # Clean up
+--echo #
+
+--connection server2
+--echo server2
+
+# Restart group replication to reset the member version
+SET @@GLOBAL.DEBUG= 'd,group_replication_compatability_restore_version';
+--source include/stop_group_replication.inc
+--source include/start_group_replication.inc
+
+SET @@GLOBAL.DEBUG= @debug_save;
+
+DROP TABLE t1;
+
+--source ../inc/group_replication_end.inc

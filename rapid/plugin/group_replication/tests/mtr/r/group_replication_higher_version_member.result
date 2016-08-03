@@ -1,0 +1,38 @@
+include/group_replication.inc
+Warnings:
+Note	####	Sending passwords in plain text without SSL/TLS is extremely insecure.
+Note	####	Storing MySQL user name or password information in the master info repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START SLAVE; see the 'START SLAVE Syntax' in the MySQL Manual for more information.
+[connection server1]
+#
+# Setup a member
+#
+server1
+include/start_and_bootstrap_group_replication.inc
+# Add some data for recovery
+CREATE TABLE t1 (c1 INT NOT NULL PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+#
+# Try to add a new member that has a higher version
+#
+server2
+SET @debug_saved= @@GLOBAL.DEBUG;
+SET @@GLOBAL.DEBUG= '+d,group_replication_compatability_higher_minor_version';
+include/start_group_replication.inc
+#
+# Check all is fine
+#
+server2
+INSERT INTO t1 VALUES (2);
+include/sync_slave_sql_with_master.inc
+server1
+include/assert.inc [On the first member, the table should contain 2 elements]
+#
+# Clean up
+#
+server2
+SET @@GLOBAL.DEBUG= 'd,group_replication_compatability_restore_version';
+include/stop_group_replication.inc
+include/start_group_replication.inc
+SET @@GLOBAL.DEBUG= @debug_save;
+DROP TABLE t1;
+include/group_replication_end.inc

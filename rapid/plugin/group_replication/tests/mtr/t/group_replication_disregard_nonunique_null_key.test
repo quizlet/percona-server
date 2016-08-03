@@ -1,0 +1,186 @@
+################################################################################
+#
+# BUG#20975167 - --TRANSACTION-WRITE-SET-EXTRACTION IS CONSIDERING NON UNIQUE
+#                  AND NULL KEYS
+#
+# This bug verifies that a non unique key or a key with non unique null value
+# should not be considered to check conflict between incoming transactions.
+#
+# CASE I - One of the column of the table is a non unique key. So it should not
+# be considered as a part of the conflict detection.
+#
+# Table t1 has a primary key and a key. For two transactions which have
+# different primary key value, both should succeed and the table should
+# finally have two rows.
+#
+# T1: WS={t1.(a)=(1,2)}
+# T2: WS={t1.(a)=(3,2)}
+#
+# Outcome: T1 and T2 must commit.
+#
+# Case II - One of the column of the table is a unique key (can take null
+# values). So it should not be considered as a part of the conflict detection.
+#
+# Table t2 has a primary key and a unique key column. For two transactions
+# which have different primary key value, both should succeed and the table
+# should finally have two rows.
+#
+# T1: WS={t2.(a)=(1,NULL)}
+# T2: WS={t2.(a)=(3,NULL)}
+#
+# Outcome: T1 and T2 must commit.
+#
+# Test:
+# 0. The test requires two servers: M1 and M2.
+# 1. With both members ONLINE. Create a table on M1.
+# 2. Set a debug sync before broadcast message to group on connection M1.
+#    Commit a transaction that will be blocked before broadcast.
+# 3. Wait until M1 connection reaches the debug sync point.
+# 4. Execute a transaction on M2, that will reach certification first, since M1
+#    is blocked before broadcast.
+# 5. Signal the waiting thread on M1 to resume.
+# 6. Must not error out since c2 column allows duplicate keys/NULL values.
+# 7. Clean up.
+################################################################################
+
+--source include/have_debug_sync.inc
+--source ../inc/have_group_replication_plugin.inc
+--source ../inc/group_replication.inc
+
+--echo
+--echo ############################################################
+--echo # 1. Create a table on server1.
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+CREATE TABLE t1 (c1 INT PRIMARY KEY, c2 INT, KEY `c2` (`c2`));
+--source include/rpl_sync.inc
+
+--echo
+--echo ############################################################
+--echo # 2. Set a debug sync before broadcast message to group on
+--echo #    connection server_1.
+--echo #    Commit a transaction that will be block before broadcast.
+--let $rpl_connection_name= server_1
+--source include/rpl_connection.inc
+SET @debug_save= @@GLOBAL.DEBUG;
+SET @@GLOBAL.DEBUG='d,group_replication_before_message_broadcast';
+BEGIN;
+INSERT INTO t1 VALUES (1, 2);
+--send COMMIT
+
+--echo
+--echo ############################################################
+--echo # 3. Wait until server_1 connection reaches the
+--echo # group_replication_before_message_broadcast debug sync point.
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+--let $wait_condition=SELECT COUNT(*)=1 FROM INFORMATION_SCHEMA.PROCESSLIST WHERE State = 'debug sync point: now'
+--source include/wait_condition.inc
+
+--echo
+--echo ############################################################
+--echo # 4. Execute a transaction on server2, that will reach first
+--echo #    certification, since server_1 is blocked before broadcast.
+--let $rpl_connection_name= server2
+--source include/rpl_connection.inc
+INSERT INTO t1 VALUES (3, 2);
+--let $sync_slave_connection= server1
+--source include/sync_slave_sql_with_master.inc
+
+--echo
+--echo ############################################################
+--echo # 5. Signal the waiting thread on server_1 to resume.
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+SET DEBUG_SYNC='now SIGNAL waiting';
+SET @@GLOBAL.DEBUG= @debug_save;
+
+--echo
+--echo ############################################################
+--echo # 6. Must not error out since c2 column allows duplicate
+--echo #    keys.
+--let $rpl_connection_name= server_1
+--source include/rpl_connection.inc
+--reap
+
+--let $assert_text= The table should have two rows due to the two successful inserts
+--let $assert_cond= `SELECT COUNT(*) = 2 FROM t1`
+--source include/assert.inc
+
+DROP TABLE t1;
+--source include/rpl_sync.inc
+
+# Case II - One of the column of the table is a unique key(can take null
+# values). So it should not be considered as a part of the conflict detection.
+#
+# Table t2 has a primary key and a unique key column. For two transactions
+# which have different primary key value, both should succeed and the table
+# should finally have two rows.
+
+# T1: WS={t2.(a)=(1,NULL)}
+# T2: WS={t2.(a)=(3,NULL)}
+#
+# Outcome: T1 and T2 must commit.
+#
+
+--echo
+--echo ############################################################
+--echo # 1. Create a table on server1.
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+CREATE TABLE t2 (c1 INT PRIMARY KEY, c2 INT UNIQUE KEY);
+--source include/rpl_sync.inc
+
+--echo
+--echo ############################################################
+--echo # 2. Set a debug sync before broadcast message to group on
+--echo #    connection server_1.
+--echo #    Commit a transaction that will be block before broadcast.
+--let $rpl_connection_name= server_1
+--source include/rpl_connection.inc
+SET @@GLOBAL.DEBUG='d,group_replication_before_message_broadcast';
+BEGIN;
+INSERT INTO t2 VALUES (1, NULL);
+--send COMMIT
+
+--echo
+--echo ############################################################
+--echo # 3. Wait until server_1 connection reaches the
+--echo # group_replication_before_message_broadcast debug sync point.
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+--let $wait_condition=SELECT COUNT(*)=1 FROM INFORMATION_SCHEMA.PROCESSLIST WHERE State = 'debug sync point: now'
+--source include/wait_condition.inc
+
+--echo
+--echo ############################################################
+--echo # 4. Execute a transaction on server2, that will reach first
+--echo #    certification, since server_1 is blocked before broadcast.
+--let $rpl_connection_name= server2
+--source include/rpl_connection.inc
+INSERT INTO t2 VALUES (3, NULL);
+--let $sync_slave_connection= server1
+--source include/sync_slave_sql_with_master.inc
+
+--echo
+--echo ############################################################
+--echo # 5. Signal the waiting thread on server_1 to resume.
+--let $rpl_connection_name= server1
+--source include/rpl_connection.inc
+SET DEBUG_SYNC='now SIGNAL waiting';
+SET @@GLOBAL.DEBUG= @debug_save;
+
+--echo
+--echo ############################################################
+--echo # 6. Must not error out since c2 column allows NULL values.
+--let $rpl_connection_name= server_1
+--source include/rpl_connection.inc
+--reap
+
+--let $assert_text= The table should have two rows due to the two successful inserts
+--let $assert_cond= `SELECT COUNT(*) = 2 FROM t2`
+--source include/assert.inc
+
+DROP TABLE t2;
+
+--source ../inc/group_replication_end.inc

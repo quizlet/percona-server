@@ -1,0 +1,89 @@
+include/group_replication.inc
+Warnings:
+Note	####	Sending passwords in plain text without SSL/TLS is extremely insecure.
+Note	####	Storing MySQL user name or password information in the master info repository is not secure and is therefore not recommended. Please consider using the USER and PASSWORD connection options for START SLAVE; see the 'START SLAVE Syntax' in the MySQL Manual for more information.
+[connection server1]
+
+############################################################
+# 1. Create a table on server1.
+[connection server1]
+CREATE TABLE t1 (c1 INT PRIMARY KEY, c2 INT, KEY `c2` (`c2`));
+include/rpl_sync.inc
+
+############################################################
+# 2. Set a debug sync before broadcast message to group on
+#    connection server_1.
+#    Commit a transaction that will be block before broadcast.
+[connection server_1]
+SET @debug_save= @@GLOBAL.DEBUG;
+SET @@GLOBAL.DEBUG='d,group_replication_before_message_broadcast';
+BEGIN;
+INSERT INTO t1 VALUES (1, 2);
+COMMIT;
+
+############################################################
+# 3. Wait until server_1 connection reaches the
+# group_replication_before_message_broadcast debug sync point.
+[connection server1]
+
+############################################################
+# 4. Execute a transaction on server2, that will reach first
+#    certification, since server_1 is blocked before broadcast.
+[connection server2]
+INSERT INTO t1 VALUES (3, 2);
+include/sync_slave_sql_with_master.inc
+
+############################################################
+# 5. Signal the waiting thread on server_1 to resume.
+[connection server1]
+SET DEBUG_SYNC='now SIGNAL waiting';
+SET @@GLOBAL.DEBUG= @debug_save;
+
+############################################################
+# 6. Must not error out since c2 column allows duplicate
+#    keys.
+[connection server_1]
+include/assert.inc [The table should have two rows due to the two successful inserts]
+DROP TABLE t1;
+include/rpl_sync.inc
+
+############################################################
+# 1. Create a table on server1.
+[connection server1]
+CREATE TABLE t2 (c1 INT PRIMARY KEY, c2 INT UNIQUE KEY);
+include/rpl_sync.inc
+
+############################################################
+# 2. Set a debug sync before broadcast message to group on
+#    connection server_1.
+#    Commit a transaction that will be block before broadcast.
+[connection server_1]
+SET @@GLOBAL.DEBUG='d,group_replication_before_message_broadcast';
+BEGIN;
+INSERT INTO t2 VALUES (1, NULL);
+COMMIT;
+
+############################################################
+# 3. Wait until server_1 connection reaches the
+# group_replication_before_message_broadcast debug sync point.
+[connection server1]
+
+############################################################
+# 4. Execute a transaction on server2, that will reach first
+#    certification, since server_1 is blocked before broadcast.
+[connection server2]
+INSERT INTO t2 VALUES (3, NULL);
+include/sync_slave_sql_with_master.inc
+
+############################################################
+# 5. Signal the waiting thread on server_1 to resume.
+[connection server1]
+SET DEBUG_SYNC='now SIGNAL waiting';
+SET @@GLOBAL.DEBUG= @debug_save;
+
+############################################################
+# 6. Must not error out since c2 column allows NULL values.
+[connection server_1]
+include/assert.inc [The table should have two rows due to the two successful inserts]
+DROP TABLE t2;
+include/group_replication_end.inc
